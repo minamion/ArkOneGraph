@@ -1,7 +1,7 @@
 import numpy as np
 import urllib.request, json, time, os, copy, sys
 from scipy.optimize import linprog
-from utils import Price, Credit
+from utils import Price, Credit, HeYue, HYO
 from collections import defaultdict as ddict
 
 global penguin_url
@@ -19,6 +19,7 @@ class MaterialPlanning(object):
                  update=False,
                  banned_stages={},
                  expValue=30,
+                 ConvertionDR=0.18,
                  printSetting='111111111'):
         """
         Object initialization.
@@ -48,10 +49,10 @@ class MaterialPlanning(object):
                 if dct['times']>=filter_freq and dct['stage']['code'] not in filter_stages:
                     filtered_probs.append(dct)
             material_probs['matrix'] = filtered_probs
-
+        self.ConvertionDR = ConvertionDR
         self._set_lp_parameters(*self._pre_processing(material_probs, convertion_rules))
-        assert len(printSetting)==9, 'printSetting 长度应为9'
-        assert printSetting.count('1') + printSetting.count('0') == 9, 'printSetting 中只能含有0或1'
+        assert len(printSetting)==10, 'printSetting 长度应为10'
+        assert printSetting.count('1') + printSetting.count('0') == 10, 'printSetting 中只能含有0或1'
         self.printSetting = [int(x) for x in printSetting]
 
 
@@ -66,11 +67,11 @@ class MaterialPlanning(object):
         """
         # To count items and stages.
         additional_items = {'30135': u'D32钢', '30125': u'双极纳米片', '30115': u'聚合剂'}
-        exp_unit = 200*self.expValue/7400
-        gold_unit = 0.004
-        exp_worths = {'2001':exp_unit, '2002':exp_unit*2, '2003':exp_unit*5, '2004':exp_unit*10}
-        gold_worths = {'3003':gold_unit*500}
-
+        self.gold_unit = 30/7500
+        self.exp_unit = 200*(self.expValue-360*self.gold_unit)/7400
+        exp_worths = {'2001':self.exp_unit, '2002':self.exp_unit*2, '2003':self.exp_unit*5, '2004':self.exp_unit*10, '3003': self.exp_unit*5*72/180}
+        gold_worths = {}
+        print(exp_worths['3003'])
         item_dct = {}
         stage_dct = {}
         for dct in material_probs['matrix']:
@@ -110,7 +111,7 @@ class MaterialPlanning(object):
                 float(dct['item']['itemId'])
                 probs_matrix[self.stage_dct_rv[dct['stage']['code']], self.item_dct_rv[dct['item']['name']]] = dct['quantity']/float(dct['times'])
                 if cost_lst[self.stage_dct_rv[dct['stage']['code']]] == 0:
-                    cost_gold_offset[self.stage_dct_rv[dct['stage']['code']]] = - dct['stage']['apCost']*(12*gold_unit)
+                    cost_gold_offset[self.stage_dct_rv[dct['stage']['code']]] = - dct['stage']['apCost']*(12*self.gold_unit)
                 cost_lst[self.stage_dct_rv[dct['stage']['code']]] = dct['stage']['apCost']
             except:
                 pass
@@ -126,8 +127,8 @@ class MaterialPlanning(object):
                 pass
 
         # Hardcoding: extra gold farmed.
-        cost_gold_offset[self.stage_dct_rv['S4-6']] -= 3228 * gold_unit
-        cost_gold_offset[self.stage_dct_rv['S5-2']] -= 2484 * gold_unit
+        cost_gold_offset[self.stage_dct_rv['S4-6']] -= 3228 * self.gold_unit
+        cost_gold_offset[self.stage_dct_rv['S5-2']] -= 2484 * self.gold_unit
 
         # To build equavalence relationship from convert_rule_dct.
         self.convertions_dct = {}
@@ -148,10 +149,10 @@ class MaterialPlanning(object):
             outc_wgh = {outc['name']:outc['weight'] for outc in rule['extraOutcome']}
             weight_sum = float(sum(outc_wgh.values()))
             for iname in outc_dct:
-                convertion[self.item_dct_rv[iname]] += outc_dct[iname]*0.18*outc_wgh[iname]/weight_sum
+                convertion[self.item_dct_rv[iname]] += outc_dct[iname]*self.ConvertionDR*outc_wgh[iname]/weight_sum
             convertion_outc_matrix.append(convertion)
 
-            convertion_cost_lst.append(rule['goldCost']*0.004)
+            convertion_cost_lst.append(rule['goldCost']*self.gold_unit)
 
         convertions_group = (np.array(convertion_matrix), np.array(convertion_outc_matrix), np.array(convertion_cost_lst))
         farms_group = (probs_matrix, cost_lst, cost_exp_offset, cost_gold_offset)
@@ -279,9 +280,9 @@ class MaterialPlanning(object):
         n_looting, n_convertion = x[:len(self.cost_lst)], x[len(self.cost_lst):]
 
         cost = np.dot(x[:len(self.cost_lst)], self.cost_lst)
-        gcost = np.dot(x[len(self.cost_lst):], self.convertion_cost_lst) / 0.004
-        gold = - np.dot(n_looting, self.cost_gold_offset) / 0.004
-        exp = - np.dot(n_looting, self.cost_exp_offset) * 7400 / 30.0
+        gcost = np.dot(x[len(self.cost_lst):], self.convertion_cost_lst) / self.gold_unit
+        gold = - np.dot(n_looting, self.cost_gold_offset) / self.gold_unit
+        exp = - np.dot(n_looting, self.cost_exp_offset) * 7400 / self.expValue
 
         if print_output:
             print(status_dct[status]+(' Computed in %.4f seconds,' %(time.time()-stt)))
@@ -393,19 +394,19 @@ class MaterialPlanning(object):
                     dr = values['droprate']
                     ec = values['expected_cost']
                     ef = values['effect']
-                    if ec/ef < Max999['Cost']:
+                    if ec/ef < Max999['Cost'] or (ef>0.90 and (dr>Max999['dr'] or ec<Max999['Cost'])):
                         print('%s: \t掉率 %.1f 期望理智 %.1f\t效率 %.4f\t GATE %.1f'% (stage, dr*100, ec, ef, ec/ef))
 
     def output_credit(self):
         self.creditEffect = dict()
-        self.creditEffect['技巧概要·卷2(合成卷3)'] = 30/(4+ 3/2.82 + 3/2.82/2.82)/2.82/(200/3)
-        self.creditEffect['技巧概要·卷1(合成卷3)'] = 30/(4+ 3/2.82 + 3/2.82/2.82)/2.82/2.82/(160/5)
-        self.creditEffect['技巧概要·卷2(刷CA3)'] = 20/(3+1/2.82)/(200/3)
-        self.creditEffect['技巧概要·卷1(刷CA3)'] = 20/(3+1/2.82)/2.82/(160/5)
-        self.creditEffect['龙门币'] = 0.004*3600/200
-        self.creditEffect['作战记录'] = self.expValue/7400*3600/200
-        self.creditEffect['赤金'] = self.expValue/7400*800*6/200
-        self.creditEffect['招聘许可'] = (12*0.774+38/258*600/180*130*0.1)/160
+        self.creditEffect['技巧概要·卷2(合成卷3)'] = (30-self.gold_unit*30*12)/(4+ 3/2.82 + 3/2.82/2.82)/2.82/(200/3)
+        self.creditEffect['技巧概要·卷1(合成卷3)'] = (30-self.gold_unit*30*12)/(4+ 3/2.82 + 3/2.82/2.82)/2.82/2.82/(160/5)
+        self.creditEffect['技巧概要·卷2(刷CA3)'] = (20-self.gold_unit*20*12)/(3+1/2.82)/(200/3)
+        self.creditEffect['技巧概要·卷1(刷CA3)'] = (20-self.gold_unit*20*12)/(3+1/2.82)/2.82/(160/5)
+        self.creditEffect['龙门币'] = self.gold_unit*3600/200
+        self.creditEffect['作战记录'] = self.exp_unit*18/200
+        self.creditEffect['赤金'] = self.exp_unit*5*72/180*6/160
+        self.creditEffect['招聘许可'] = (12*0.774+38/258*600/180*130*0.1)/160*(1-self.gold_unit*1*12)
 
         for item, value in Credit.items():
             self.creditEffect[item] = self.item_value[item]/value
@@ -414,8 +415,35 @@ class MaterialPlanning(object):
             self.creditEffect[item+'-50%%'] = value/2
             self.creditEffect[item+'-原价'] = value/4
         for item, value in sorted(self.creditEffect.items(), key=lambda x:x[1], reverse=True):
-#            print('%-20s:\t\t%.4f' % (item, value))
-            sys.stdout.write('%s>'%item)
+            print('%-20s:\t\t%.4f' % (item, value*100))
+#            sys.stdout.write('%s>'%item)
+        return
+
+    def output_WeiJiHeYue(self):
+
+        print('\n机密圣所(合约商店):')
+        self.HeYueDict = {
+                '龙门币': 85 * self.gold_unit / 1,
+                '中级作战记录': self.exp_unit*5 / 12,
+                '技巧概要·卷2(刷CA3)': 20/(3+1/2.82) / 15 *(1-self.gold_unit*1*12),
+                '技巧概要·卷2(不刷CA3)': 30/(4+ 3/2.82 + 3/2.82/2.82)/2.82 / 15*(1-self.gold_unit*1*12),
+                '芯片': (18-0.165*0.5*18/3)/(0.5 + 0.5*2/3)/60*(1-self.gold_unit*1*12)
+                }
+        self.HYODict = {
+                '龙门币': 2000 * self.gold_unit / 15,
+                '中级作战记录': self.exp_unit*5*2 / 15,
+                '零件': 1/1.8,
+                '皮肤': 21*130/3000
+                }
+        for item, value in HeYue.items():
+            self.HeYueDict[item] = self.item_value[item] / value
+        for item, value in HYO.items():
+            self.HYODict[item] = self.item_value[item] / value
+        for k, v in sorted(self.HeYueDict.items(), key=lambda x:x[1], reverse=True):
+            print('%s:\t%.3f'%(k, v))
+        print('常规池')
+        for k, v in sorted(self.HYODict.items(), key=lambda x:x[1], reverse=True):
+            print('%s:\t%.3f'%(k, v))
 
     def output(self):
         Print_functions = [
@@ -427,7 +455,8 @@ class MaterialPlanning(object):
             self.output_yellow,
             self.output_effect,
             self.output_best_stage,
-            self.output_credit]
+            self.output_credit,
+            self.output_WeiJiHeYue]
         for i, function in enumerate(Print_functions):
             if self.printSetting[i]:
                 Print_functions[i]()
@@ -436,7 +465,7 @@ class MaterialPlanning(object):
     def output_cost(self):
         print('Estimated total cost: %d, gold: %d, exp: %d.\n等效理智%.0f'%\
                   (self.res['cost'],self.res['gold'],self.res['exp'],
-                   self.res['cost']-self.res['gold']*0.004-self.res['exp']*30/7400))
+                   self.res['cost']-self.res['gold']*self.gold_unit-self.res['exp']*30/7400))
 
     def output_stages(self):
         print('Loot at following stages:')
