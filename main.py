@@ -1,12 +1,20 @@
 import sys, codecs
 from MaterialPlanning import MaterialPlanning
+#from MaterialPlanningRaw import MaterialPlanning
+
 '''
-printSetting: 共9位数字,1代表输出,0代表不输出 顺序为:
-    总理智消耗, 最优关卡, 合成路线,
-    物品价值, 绿票商店, 黄票商店,
-    关卡效率, 推荐关卡, 信用商店
-    例: '111111111' 表示全部输出, '000000000' 表示全部不输出, '000000010' 表示输出推荐关卡
-    '''
+        Print_functions = [
+            self.output_cost,
+            self.output_stages,
+            self.output_items,
+            self.output_values,
+            self.output_green,
+            self.output_yellow,
+            self.output_effect,
+            self.output_best_stage,
+            self.output_credit,
+            self.output_WeiJiHeYue]
+'''
 
 if __name__ == '__main__':
 
@@ -16,7 +24,8 @@ if __name__ == '__main__':
         filter_stages = []
 
     mp = MaterialPlanning(filter_stages=filter_stages, update=False,
-                          banned_stages={}, expValue=30, printSetting='000000010')
+                          banned_stages={}, expValue=30, printSetting='1111111110', ConvertionDR=0.18)
+#    mp = MaterialPlanning()
 
     with codecs.open('required.txt', 'r', 'utf-8') as f:
         required_dct = {}
@@ -29,4 +38,4 @@ if __name__ == '__main__':
             owned_dct[line.split(' ')[0]] = int(line.split(' ')[1])
 
     res, mat1, mat2 = mp.get_plan(required_dct, owned_dct, True, outcome=True,
-                                  gold_demand=False, exp_demand=True)
+                                  gold_demand=True, exp_demand=False)
