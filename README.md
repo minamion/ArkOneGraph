@@ -6,7 +6,7 @@
 [NGA原帖](https://bbs.nga.cn/read.php?tid=19069337)
 每次大型活动(新图)开启后一天及活动关闭时在此贴更新图片
 
-![12月5日更新](https://img.nga.178.com/attachments/mon_201912/05/-klbw3Q5-abywXaZ2tT3cS2iz-14o.png)
+![1月1日更新](https://img.nga.178.com/attachments/mon_202001/01/-klbw3Q5-b75xXdZ3iT3cS2iz-1bi.png)
 
 ## 主要修改
 
